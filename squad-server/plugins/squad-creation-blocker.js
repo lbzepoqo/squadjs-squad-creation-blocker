@@ -2,7 +2,7 @@ import BasePlugin from './base-plugin.js';
 
 export default class SquadCreationBlocker extends BasePlugin {
   static get description() {
-    return 'The <code>SquadCreationBlocker</code> plugin prevents squads from being created within a specified time after a new game starts and at the end of a round. It can also optionally broadcast a countdown until squad creation is unlocked.';
+    return 'The <code>SquadCreationBlocker</code> plugin prevents squads from being created within a specified time after a new game starts and at the end of a round. It can also optionally broadcast a countdown when 10 seconds are left and when squad creation is unlocked.';
   }
 
   static get defaultEnabled() {
@@ -30,7 +30,7 @@ export default class SquadCreationBlocker extends BasePlugin {
     this.isRoundEnding = false;
     this.blockDurationMs = this.options.blockDuration * 1000;
     this.blockEndTime = 0;
-    this.countdownInterval = null;
+    this.broadcastTimeout = null;
     this.bindEventHandlers();
   }
 
@@ -47,7 +47,7 @@ export default class SquadCreationBlocker extends BasePlugin {
   }
 
   async unmount() {
-    this.stopCountdownBroadcast();
+    this.clearBroadcast();
     this.server.removeEventListener('NEW_GAME', this.handleNewGame);
     this.server.removeEventListener('SQUAD_CREATED', this.handleSquadCreated);
     this.server.removeEventListener('ROUND_ENDED', this.handleRoundEnd);
@@ -59,13 +59,12 @@ export default class SquadCreationBlocker extends BasePlugin {
     this.blockEndTime = Date.now() + this.blockDurationMs;
 
     if (this.options.enableCountdownBroadcast) {
-      this.startCountdownBroadcast();
+      this.scheduleBroadcast();
     }
 
     setTimeout(() => {
       this.isBlocking = false;
       if (this.options.enableCountdownBroadcast) {
-        this.stopCountdownBroadcast();
         this.server.rcon.execute('AdminBroadcast Squad creation is now unlocked!');
       }
     }, this.blockDurationMs);
@@ -74,7 +73,7 @@ export default class SquadCreationBlocker extends BasePlugin {
   handleRoundEnd() {
     this.isBlocking = true;
     this.isRoundEnding = true;
-    this.stopCountdownBroadcast();
+    this.clearBroadcast();
   }
 
   async handleSquadCreated(info) {
@@ -90,21 +89,17 @@ export default class SquadCreationBlocker extends BasePlugin {
     }
   }
 
-  startCountdownBroadcast() {
-    this.countdownInterval = setInterval(() => {
-      const timeLeft = Math.ceil((this.blockEndTime - Date.now()) / 1000);
-      if (timeLeft > 0) {
-        this.server.rcon.execute(`AdminBroadcast Squad creation will be unlocked in ${timeLeft} second${timeLeft !== 1 ? 's' : ''}`);
-      } else {
-        this.stopCountdownBroadcast();
-      }
-    }, 1000);
+  scheduleBroadcast() {
+    const timeUntilBroadcast = this.blockDurationMs - 10000;
+    this.broadcastTimeout = setTimeout(() => {
+      this.server.rcon.execute('AdminBroadcast Squad creation will be unlocked in 10 seconds');
+    }, timeUntilBroadcast);
   }
 
-  stopCountdownBroadcast() {
-    if (this.countdownInterval) {
-      clearInterval(this.countdownInterval);
-      this.countdownInterval = null;
+  clearBroadcast() {
+    if (this.broadcastTimeout) {
+      clearTimeout(this.broadcastTimeout);
+      this.broadcastTimeout = null;
     }
   }
 }
