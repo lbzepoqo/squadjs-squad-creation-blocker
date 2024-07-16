@@ -2,7 +2,7 @@ import BasePlugin from './base-plugin.js';
 
 export default class SquadCreationBlocker extends BasePlugin {
   static get description() {
-    return 'The <code>SquadCreationBlocker</code> plugin prevents squads from being created within a specified time after a new game starts and at the end of a round. It can also optionally broadcast a countdown when 10 seconds are left and when squad creation is unlocked.';
+    return 'The <code>SquadCreationBlocker</code> plugin prevents squads from being created within a specified time after a new game starts and at the end of a round. It can either broadcast countdown messages or send individual warnings to players attempting to create squads.';
   }
 
   static get defaultEnabled() {
@@ -16,9 +16,9 @@ export default class SquadCreationBlocker extends BasePlugin {
         description: 'Time period after a new game starts during which squad creation is blocked (in seconds).',
         default: 15
       },
-      enableCountdownBroadcast: {
+      broadcastMode: {
         required: false,
-        description: 'Whether to enable the countdown broadcast feature.',
+        description: 'If true, uses countdown broadcasts. If false, sends individual warnings to players.',
         default: false
       }
     };
@@ -30,7 +30,7 @@ export default class SquadCreationBlocker extends BasePlugin {
     this.isRoundEnding = false;
     this.blockDurationMs = this.options.blockDuration * 1000;
     this.blockEndTime = 0;
-    this.broadcastTimeout = null;
+    this.broadcastTimeouts = [];
     this.bindEventHandlers();
   }
 
@@ -47,7 +47,7 @@ export default class SquadCreationBlocker extends BasePlugin {
   }
 
   async unmount() {
-    this.clearBroadcast();
+    this.clearBroadcasts();
     this.server.removeEventListener('NEW_GAME', this.handleNewGame);
     this.server.removeEventListener('SQUAD_CREATED', this.handleSquadCreated);
     this.server.removeEventListener('ROUND_ENDED', this.handleRoundEnd);
@@ -58,22 +58,20 @@ export default class SquadCreationBlocker extends BasePlugin {
     this.isRoundEnding = false;
     this.blockEndTime = Date.now() + this.blockDurationMs;
 
-    if (this.options.enableCountdownBroadcast) {
-      this.scheduleBroadcast();
+    if (this.options.broadcastMode) {
+      this.scheduleBroadcasts();
     }
 
     setTimeout(() => {
       this.isBlocking = false;
-      if (this.options.enableCountdownBroadcast) {
-        this.server.rcon.execute('AdminBroadcast Squad creation is now unlocked!');
-      }
+      this.server.rcon.broadcast('Squad creation is now unlocked!');
     }, this.blockDurationMs);
   }
 
   handleRoundEnd() {
     this.isBlocking = true;
     this.isRoundEnding = true;
-    this.clearBroadcast();
+    this.clearBroadcasts();
   }
 
   async handleSquadCreated(info) {
@@ -81,25 +79,35 @@ export default class SquadCreationBlocker extends BasePlugin {
 
     await this.server.rcon.execute(`AdminDisbandSquad ${info.player.teamID} ${info.player.squadID}`);
 
-    if (this.isRoundEnding) {
-      await this.server.rcon.warn(info.player.steamID, "You are not allowed to create a squad at the end of a round.");
-    } else {
-      const timeLeft = Math.ceil((this.blockEndTime - Date.now()) / 1000);
-      await this.server.rcon.warn(info.player.steamID, `Please wait for ${timeLeft} second${timeLeft !== 1 ? 's' : ''} before creating a squad.`);
+    if (!this.options.broadcastMode) {
+      if (this.isRoundEnding) {
+        await this.server.rcon.warn(info.player.steamID, "You are not allowed to create a squad at the end of a round.");
+      } else {
+        const timeLeft = Math.ceil((this.blockEndTime - Date.now()) / 1000);
+        await this.server.rcon.warn(info.player.steamID, `Please wait for ${timeLeft} second${timeLeft !== 1 ? 's' : ''} before creating a squad.`);
+      }
     }
   }
 
-  scheduleBroadcast() {
-    const timeUntilBroadcast = this.blockDurationMs - 10000;
-    this.broadcastTimeout = setTimeout(() => {
-      this.server.rcon.execute('AdminBroadcast Squad creation will be unlocked in 10 seconds');
-    }, timeUntilBroadcast);
+  scheduleBroadcasts() {
+    const broadcasts = [];
+    for (let i = Math.floor(this.options.blockDuration / 10) * 10; i > 0; i -= 10) {
+      broadcasts.push({
+        time: this.blockDurationMs - i * 1000,
+        message: `Squad creation will be unlocked in ${i} seconds.`
+      });
+    }
+
+    broadcasts.forEach(broadcast => {
+      const timeout = setTimeout(() => {
+        this.server.rcon.broadcast(broadcast.message);
+      }, broadcast.time);
+      this.broadcastTimeouts.push(timeout);
+    });
   }
 
-  clearBroadcast() {
-    if (this.broadcastTimeout) {
-      clearTimeout(this.broadcastTimeout);
-      this.broadcastTimeout = null;
-    }
+  clearBroadcasts() {
+    this.broadcastTimeouts.forEach(clearTimeout);
+    this.broadcastTimeouts = [];
   }
 }
