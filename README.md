@@ -2,7 +2,7 @@
 
 ## Description
 
-The SquadCreationBlocker plugin is designed for SquadJS to manage and control squad creation in Squad servers. It prevents squads from being created within a specified time after a new game starts and at the end of a round. Additionally, it offers an optional feature to broadcast a countdown until squad creation is unlocked.
+The SquadCreationBlocker plugin is designed for SquadJS to manage and control squad creation in Squad servers. It prevents squads from being created within a specified time after a new game starts and at the end of a round. Additionally, it offers an optional feature to broadcast a countdown when 10 seconds are left and when squad creation is unlocked.
 
 ## Features
 
@@ -43,19 +43,21 @@ Once configured and enabled, the plugin will automatically:
 
 1. Block squad creation for the specified duration at the start of each new game.
 2. Prevent squad creation at the end of each round.
-3. If `enableCountdownBroadcast` is set to `true`, broadcast a countdown message every second until squad creation is unlocked.
+3. If `enableCountdownBroadcast` is set to `true`:
+   - Broadcast a message when 10 seconds are left before squad creation is unlocked.
+   - Broadcast a message when squad creation is unlocked.
 4. Disband any squads created during the blocked period and warn the player who attempted to create the squad.
 
 ## Behavior
 
 - **New Game Start**: 
   - Blocks squad creation for the specified `blockDuration`.
-  - If enabled, starts broadcasting countdown messages.
+  - If enabled, schedules a broadcast for 10 seconds before unlocking.
   - When the block period ends, allows squad creation and broadcasts an "unlocked" message if countdown was enabled.
 
 - **Round End**: 
   - Blocks squad creation indefinitely until the next game starts.
-  - Stops any ongoing countdown broadcasts.
+  - Cancels any scheduled broadcasts.
 
 - **Squad Creation Attempt During Blocked Period**:
   - Disbands the squad immediately.
