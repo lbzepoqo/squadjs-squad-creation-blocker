@@ -10,6 +10,7 @@ The SquadCreationBlocker plugin is designed for SquadJS to manage and control sq
 - Prevents squad creation at the end of a round.
 - Two modes of operation: broadcast mode and warning mode.
 - Configurable block duration.
+- Option to allow default squad names during the blocked period.
 - Provides feedback to players attempting to create squads during blocked periods.
 
 ## Installation
@@ -27,7 +28,8 @@ Add the following to your SquadJS configuration file:
   "plugin": "SquadCreationBlocker",
   "enabled": true,
   "blockDuration": 15,
-  "broadcastMode": false
+  "broadcastMode": false,
+  "allowDefaultSquadNames": true
 }
 ```
 
@@ -36,6 +38,7 @@ Add the following to your SquadJS configuration file:
 - `enabled`: Set to `true` to enable the plugin, `false` to disable.
 - `blockDuration`: The duration (in seconds) after a new game starts during which squad creation is blocked. Default is 15 seconds.
 - `broadcastMode`: Set to `true` to enable countdown broadcasts, `false` to enable individual warnings. Default is false.
+- `allowDefaultSquadNames`: Set to `true` to allow creation of squads with default names (e.g., "Squad 1") during the blocking period. Default is true.
 
 ## Usage
 
@@ -49,6 +52,7 @@ Once configured and enabled, the plugin will automatically:
 4. If `broadcastMode` is set to `false`:
    - Send individual warnings to players attempting to create squads during the blocked period.
 5. Disband any squads created during the blocked period.
+6. Allow creation of squads with default names during the blocked period if `allowDefaultSquadNames` is set to `true`.
 
 ## Behavior
 
@@ -62,10 +66,13 @@ Once configured and enabled, the plugin will automatically:
   - Cancels any scheduled broadcasts.
 
 - **Squad Creation Attempt During Blocked Period**:
-  - Disbands the squad immediately.
-  - If in warning mode:
-    - During new game block: Informs how many seconds remain before they can create a squad.
-    - During round end: Informs that squad creation is not allowed at the end of a round.
+  - If the squad name is custom:
+    - Disbands the squad immediately.
+    - If in warning mode:
+      - During new game block: Informs how many seconds remain before they can create a custom squad.
+      - During round end: Informs that custom squad creation is not allowed at the end of a round.
+  - If the squad name is default (e.g., "Squad 1") and `allowDefaultSquadNames` is true:
+    - Allows the squad to be created.
 
 ## Dependencies
 
