@@ -28,9 +28,9 @@ Add the following to your SquadJS configuration file:
   "plugin": "SquadCreationBlocker",
   "enabled": true,
   "blockDuration": 15,
-  "broadcastMode": true,
+  "broadcastMode": false,
   "allowDefaultSquadNames": true,
-  "rateLimitEnforced": true,
+  "rateLimitEnforced": false,
   "rateLimitWindow": 2,
   "rateLimitMaxSquads": 3,
   "rateLimitBackoffTime": 10
