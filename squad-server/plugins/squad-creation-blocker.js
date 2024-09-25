@@ -105,6 +105,7 @@ export default class SquadCreationBlocker extends BasePlugin {
   }
 
   isDefaultSquadName(squadName) {
+    // Check if the squad name matches the pattern "Squad X" or "squad X" where X is a number
     return /^[Ss]quad \d+$/.test(squadName);
   }
 
@@ -154,7 +155,7 @@ export default class SquadCreationBlocker extends BasePlugin {
   
   	// Check if squad creation is blocked or if the round is ending
   	if (this.isBlocking || this.isRoundEnding) {
-  
+      // Allow default squad names if the option is enabled
   		if (this.options.allowDefaultSquadNames && this.isDefaultSquadName(info.squadName)) {
   			return; // Allow default squad names
   		}
