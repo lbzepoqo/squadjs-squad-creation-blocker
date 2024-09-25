@@ -2,7 +2,7 @@ import BasePlugin from './base-plugin.js';
 
 export default class SquadCreationBlocker extends BasePlugin {
   static get description() {
-    return 'The <code>SquadCreationBlocker</code> plugin prevents squads with custom names from being created within a specified time after a new game starts and at the end of a round. It can either broadcast countdown messages or send individual warnings to players attempting to create squads.';
+    return 'The <code>SquadCreationBlocker</code> plugin prevents squads with custom names from being created within a specified time after a new game starts and at the end of a round. It can either broadcast countdown messages or send individual warnings to players attempting to create squads. The plugin also includes a rate limiter to prevent players from spamming custom squad names, which can be disabled via an option.';
   }
 
   static get defaultEnabled() {
@@ -25,6 +25,26 @@ export default class SquadCreationBlocker extends BasePlugin {
         required: false,
         description: 'If true, allows creation of squads with default names (e.g., "Squad 1") during the blocking period.',
         default: true
+      },
+      rateLimitEnforced: {
+        required: false,
+        description: 'If true, enables rate limiting on custom squad creation. If false, rate limiting is disabled.',
+        default: false
+      },
+      rateLimitWindow: {
+        required: false,
+        description: 'The time window (in seconds) within which a player can create a maximum number of custom squads before triggering the backoff.',
+        default: 2
+      },
+      rateLimitMaxSquads: {
+        required: false,
+        description: 'The maximum number of custom squads a player can create within the rate limit window.',
+        default: 3
+      },
+      rateLimitBackoffTime: {
+        required: false,
+        description: 'The time (in seconds) a player must wait after exceeding the rate limit before creating another custom squad.',
+        default: 10
       }
     };
   }
@@ -38,6 +58,9 @@ export default class SquadCreationBlocker extends BasePlugin {
     this.broadcastTimeouts = [];
     this.bindEventHandlers();
     this.squadCreationType = this.options.allowDefaultSquadNames ? 'custom' : 'new';
+
+    // Initialize rate limiter (stores timestamps and backoff status for each player)
+    this.rateLimiter = new Map();
   }
 
   bindEventHandlers() {
@@ -78,35 +101,99 @@ export default class SquadCreationBlocker extends BasePlugin {
     this.isBlocking = true;
     this.isRoundEnding = true;
     this.clearBroadcasts();
+    this.server.rcon.broadcast('Squad creation is currently blocked until the next round starts.');
   }
 
   isDefaultSquadName(squadName) {
-    // Check if the squad name matches the pattern "Squad X" or "squad X" where X is a number
     return /^[Ss]quad \d+$/.test(squadName);
   }
 
-  async handleSquadCreated(info) {
-    if (!this.isBlocking) return;
-
-    // Allow default squad names if the option is enabled
-    if (this.options.allowDefaultSquadNames && this.isDefaultSquadName(info.squadName)) {
-      return;
+  checkRateLimit(player) {
+    if (!this.options.rateLimitEnforced) {
+      return true; // Skip rate limiting if it's disabled
     }
 
-    await this.server.rcon.execute(`AdminDisbandSquad ${info.player.teamID} ${info.player.squadID}`);
+    const currentTime = Date.now();
+    let playerRateData = this.rateLimiter.get(player.steamID);
 
-    if (!this.options.broadcastMode) {
-      if (this.isRoundEnding) {
-        await this.server.rcon.warn(info.player.steamID, `You are not allowed to create a ${this.squadCreationType} squad at the end of a round.`);
-      } else {
-        const timeLeft = Math.ceil((this.blockEndTime - Date.now()) / 1000);
-        const message = this.options.allowDefaultSquadNames
-          ? `Please wait for ${timeLeft} second${timeLeft !== 1 ? 's' : ''} before creating a custom squad. You can create a squad with a default name (e.g., "Squad 1") in the meantime.`
-          : `Please wait for ${timeLeft} second${timeLeft !== 1 ? 's' : ''} before creating a new squad.`;
-        await this.server.rcon.warn(info.player.steamID, message);
-      }
+    if (!playerRateData) {
+      playerRateData = {
+        timestamps: [],
+        backoffUntil: 0,
+      };
+      this.rateLimiter.set(player.steamID, playerRateData);
     }
+
+    const { timestamps, backoffUntil } = playerRateData;
+
+    // Check if player is still in the backoff period
+    if (currentTime < backoffUntil) {
+      return false; // Rate limit in effect
+    }
+
+    // Remove timestamps older than the rate limit window
+    const validTimestamps = timestamps.filter(ts => currentTime - ts < this.options.rateLimitWindow * 1000);
+    playerRateData.timestamps = validTimestamps;
+
+    // If the player exceeds the rate limit, apply backoff and return false
+    if (validTimestamps.length >= this.options.rateLimitMaxSquads) {
+      playerRateData.backoffUntil = currentTime + this.options.rateLimitBackoffTime * 1000;
+      this.rateLimiter.set(player.steamID, playerRateData);
+      return false; // Player is rate limited
+    }
+
+    // Add the current timestamp
+    validTimestamps.push(currentTime);
+    playerRateData.timestamps = validTimestamps;
+    this.rateLimiter.set(player.steamID, playerRateData);
+    return true; // Player can create a squad
   }
+
+  async handleSquadCreated(info) {
+  	const currentTime = Date.now();
+  
+  	// Check if squad creation is blocked or if the round is ending
+  	if (this.isBlocking || this.isRoundEnding) {
+  
+  		if (this.options.allowDefaultSquadNames && this.isDefaultSquadName(info.squadName)) {
+  			return; // Allow default squad names
+  		}
+  
+  		// Increment the rate limit for this player
+  		const playerCanCreate = this.checkRateLimit(info.player);
+  
+  		if (!playerCanCreate) {
+  			const backoffData = this.rateLimiter.get(info.player.steamID);
+  			if (backoffData) {
+  				const waitTime = Math.ceil((backoffData.backoffUntil - currentTime) / 1000);
+  				await this.server.rcon.warn(info.player.steamID, `You have exceeded the squad creation limit. Please wait ${waitTime} second${waitTime !== 1 ? 's' : ''}.`);
+  			}
+  		}
+  
+  		// Disband the squad
+  		await this.server.rcon.execute(`AdminDisbandSquad ${info.player.teamID} ${info.player.squadID}`);
+  		if (!this.options.broadcastMode) {
+  			await this.server.rcon.warn(info.player.steamID, 'Squad creation is currently blocked.');
+  		}
+  		return; // Exit if blocked
+  	}
+  
+  	// After global blocking time ends, check individual player backoff
+  	const playerRateData = this.rateLimiter.get(info.player.steamID);
+  
+  
+  	// Check if the player is still in backoff period
+  	if (playerRateData && currentTime < playerRateData.backoffUntil) {
+  		const waitTime = Math.ceil((playerRateData.backoffUntil - currentTime) / 1000);
+  		await this.server.rcon.warn(info.player.steamID, `You are still rate limited for squad creations. Please wait ${waitTime} second${waitTime !== 1 ? 's' : ''}.`);
+  		await this.server.rcon.execute(`AdminDisbandSquad ${info.player.teamID} ${info.player.squadID}`);
+  		return; // Prevent squad creation if still in backoff
+  	}
+  
+  }
+  
+
+
 
   scheduleBroadcasts() {
     const broadcasts = [];

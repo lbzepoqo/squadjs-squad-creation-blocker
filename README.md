@@ -28,8 +28,12 @@ Add the following to your SquadJS configuration file:
   "plugin": "SquadCreationBlocker",
   "enabled": true,
   "blockDuration": 15,
-  "broadcastMode": false,
-  "allowDefaultSquadNames": true
+  "broadcastMode": true,
+  "allowDefaultSquadNames": true,
+  "rateLimitEnforced": true,
+  "rateLimitWindow": 2,
+  "rateLimitMaxSquads": 3,
+  "rateLimitBackoffTime": 10
 }
 ```
 
@@ -39,6 +43,10 @@ Add the following to your SquadJS configuration file:
 - `blockDuration`: The duration (in seconds) after a new game starts during which squad creation is blocked. Default is 15 seconds.
 - `broadcastMode`: Set to `true` to enable countdown broadcasts, `false` to enable individual warnings. Default is false.
 - `allowDefaultSquadNames`: Set to `true` to allow creation of squads with default names (e.g., "Squad 1") during the blocking period. Default is true.
+- `rateLimitEnforced` : Set to `true` to enable rate limiting on custom squad creation, `false` to disable rate limiting. Default is false.
+- `rateLimitWindow` : The time window (in seconds) within which a player can create a maximum number of custom squads before triggering the backoff. Default is 2 seconds.
+- `rateLimitMaxSquads` : The maximum number of custom squads a player can create within the rateLimitWindow before triggering the backoff. Default is 3 squads.
+- `rateLimitBackoffTime` : The time (in seconds) a player must wait after exceeding the rate limit before being allowed to create another custom squad. Default is 10 seconds.
 
 ## Usage
 
