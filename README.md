@@ -36,7 +36,7 @@ Add the following to your SquadJS configuration file:
   "rateLimitBackoffTime": 10,
   "maxSquadsInTimeWindow": 10,
   "timeWindowForKick": 5,
-  "enforceMaxSquadCreationKick": false,
+  "enforceMaxSquadCreationKick": false
 }
 ```
 
@@ -67,6 +67,11 @@ Once configured and enabled, the plugin will automatically:
    - Send individual warnings to players attempting to create squads during the blocked period.
 5. Disband any squads created during the blocked period.
 6. Allow creation of squads with default names during the blocked period if `allowDefaultSquadNames` is set to `true`.
+7. Rate Limiting (if `rateLimitEnforced` is set to true)
+    - Track the number of custom squads a player creates within the specified `rateLimitWindow`.
+    - Trigger a backoff period if a player exceeds the `rateLimitMaxSquads` within that window.
+8. Max Squad Creation Kick (if `enforceMaxSquadCreationKick` is set to true)
+    - Monitor squad creation attempts and kick players who exceed `maxSquadsInTimeWindow` within the defined `timeWindowForKick`.
 
 ## Behavior
 
@@ -87,6 +92,16 @@ Once configured and enabled, the plugin will automatically:
       - During round end: Informs that custom squad creation is not allowed at the end of a round.
   - If the squad name is default (e.g., "Squad 1") and `allowDefaultSquadNames` is true:
     - Allows the squad to be created.
+
+- **Rate Limiting**:
+  - If `rateLimitEnforced` is enabled:
+    - Tracks squad creation attempts within the `rateLimitWindow`.
+    - If a player exceeds the `rateLimitMaxSquads`, they enter a backoff period defined by `rateLimitBackoffTime`.
+
+- **Max Squad Creation Kick**:
+  - If `enforceMaxSquadCreationKick` is enabled:
+    - Monitors squad creation within the `timeWindowForKick`.
+    - Kicks players who create more than `maxSquadsInTimeWindow` within that time frame, with a kick message informing them of the violation.
 
 ## Dependencies
 
