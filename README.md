@@ -33,7 +33,10 @@ Add the following to your SquadJS configuration file:
   "rateLimitEnforced": false,
   "rateLimitWindow": 2,
   "rateLimitMaxSquads": 3,
-  "rateLimitBackoffTime": 10
+  "rateLimitBackoffTime": 10,
+  "maxSquadsInTimeWindow": 10,
+  "timeWindowForKick": 5,
+  "enforceMaxSquadCreationKick": false,
 }
 ```
 
@@ -47,6 +50,9 @@ Add the following to your SquadJS configuration file:
 - `rateLimitWindow` : The time window (in seconds) within which a player can create a maximum number of custom squads before triggering the backoff. Default is 2 seconds.
 - `rateLimitMaxSquads` : The maximum number of custom squads a player can create within the rateLimitWindow before triggering the backoff. Default is 3 squads.
 - `rateLimitBackoffTime` : The time (in seconds) a player must wait after exceeding the rate limit before being allowed to create another custom squad. Default is 10 seconds.
+- `maxSquadsInTimeWindow`: The maximum number of squads a player can create within the defined time window before being kicked. Default is 10 squads.
+- `timeWindowForKick`: The time window (in seconds) during which squad creation will be tracked for kicking players. Default is 5 seconds.
+- `enforceMaxSquadCreationKick`: Set to `true` to kick players exceeding the max squads in the time window, `false` to disable kicking. Default is false.
 
 ## Usage
 

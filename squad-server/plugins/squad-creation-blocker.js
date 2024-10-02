@@ -45,6 +45,21 @@ export default class SquadCreationBlocker extends BasePlugin {
         required: false,
         description: 'The time (in seconds) a player must wait after exceeding the rate limit before creating another custom squad.',
         default: 10
+      },
+      maxSquadsInTimeWindow: {
+        required: false,
+        description: 'Maximum number of squads a player can create within the defined time window before being kicked.',
+        default: 10
+      },
+      timeWindowForKick: {
+          required: false,
+          description: 'Time window (in seconds) during which squad creation will be tracked for kicking players.',
+          default: 5
+      },
+      enforceMaxSquadCreationKick: {
+        required: false,
+        description: 'If true, players exceeding the max squads in time window will be kicked. If false, kicking is disabled.',
+        default: false
       }
     };
   }
@@ -59,8 +74,9 @@ export default class SquadCreationBlocker extends BasePlugin {
     this.bindEventHandlers();
     this.squadCreationType = this.options.allowDefaultSquadNames ? 'custom' : 'new';
 
-    // Initialize rate limiter (stores timestamps and backoff status for each player)
+    // Initialize rate limiter and squad creation tracker
     this.rateLimiter = new Map();
+    this.squadCreationTracker = new Map(); // Track squad creations over a period
   }
 
   bindEventHandlers() {
@@ -86,14 +102,15 @@ export default class SquadCreationBlocker extends BasePlugin {
     this.isBlocking = true;
     this.isRoundEnding = false;
     this.blockEndTime = Date.now() + this.blockDurationMs;
+    this.squadCreationTracker.clear(); // Reset squad creation tracking for new game
 
     if (this.options.broadcastMode) {
-      this.scheduleBroadcasts();
+        this.scheduleBroadcasts();
     }
 
     setTimeout(() => {
-      this.isBlocking = false;
-      this.server.rcon.broadcast(`${this.squadCreationType.charAt(0).toUpperCase() + this.squadCreationType.slice(1)} squad creation is now unlocked!`);
+        this.isBlocking = false;
+        this.server.rcon.broadcast(`${this.squadCreationType.charAt(0).toUpperCase() + this.squadCreationType.slice(1)} squad creation is now unlocked!`);
     }, this.blockDurationMs);
   }
 
@@ -101,11 +118,11 @@ export default class SquadCreationBlocker extends BasePlugin {
     this.isBlocking = true;
     this.isRoundEnding = true;
     this.clearBroadcasts();
+    this.squadCreationTracker.clear(); // Reset squad creation tracking for new round
     this.server.rcon.broadcast('Squad creation is currently blocked until the next round starts.');
   }
 
   isDefaultSquadName(squadName) {
-    // Check if the squad name matches the pattern "Squad X" or "squad X" where X is a number
     return /^[Ss]quad \d+$/.test(squadName);
   }
 
@@ -127,94 +144,95 @@ export default class SquadCreationBlocker extends BasePlugin {
 
     const { timestamps, backoffUntil } = playerRateData;
 
-    // Check if player is still in the backoff period
     if (currentTime < backoffUntil) {
       return false; // Rate limit in effect
     }
-
-    // Remove timestamps older than the rate limit window
+	
+	// Remove timestamps older than the rate limit window
     const validTimestamps = timestamps.filter(ts => currentTime - ts < this.options.rateLimitWindow * 1000);
     playerRateData.timestamps = validTimestamps;
 
-    // If the player exceeds the rate limit, apply backoff and return false
     if (validTimestamps.length >= this.options.rateLimitMaxSquads) {
       playerRateData.backoffUntil = currentTime + this.options.rateLimitBackoffTime * 1000;
       this.rateLimiter.set(player.steamID, playerRateData);
       return false; // Player is rate limited
     }
 
-    // Add the current timestamp
+	// Add the current timestamp
     validTimestamps.push(currentTime);
     playerRateData.timestamps = validTimestamps;
     this.rateLimiter.set(player.steamID, playerRateData);
-    return true; // Player can create a squad
+    return true;
+  }
+
+  trackSquadCreation(player) {
+    const currentTime = Date.now();
+    let playerCreationData = this.squadCreationTracker.get(player.steamID);
+
+    if (!playerCreationData) {
+      playerCreationData = [];
+      this.squadCreationTracker.set(player.steamID, playerCreationData);
+    }
+
+    playerCreationData = playerCreationData.filter(ts => currentTime - ts < this.options.timeWindowForKick * 1000);
+    playerCreationData.push(currentTime);
+    this.squadCreationTracker.set(player.steamID, playerCreationData);
+
+    if (this.options.enforceMaxSquadCreationKick && playerCreationData.length > this.options.maxSquadsInTimeWindow) {
+      this.kickPlayer(player);
+    }
+  }
+
+  async kickPlayer(player) {
+    const reason = `Excessive squad creations at round start. Please avoid spamming squad creations.`;
+    await this.server.rcon.execute(`AdminKick ${player.steamID} "${reason}"`);
   }
 
   async handleSquadCreated(info) {
-  	const currentTime = Date.now();
-  
-  	// Check if squad creation is blocked or if the round is ending
-  	if (this.isBlocking || this.isRoundEnding) {
-      // Allow default squad names if the option is enabled
-  		if (this.options.allowDefaultSquadNames && this.isDefaultSquadName(info.squadName)) {
-  			return; // Allow default squad names
-  		}
-  
-  		// Increment the rate limit for this player
-  		const playerCanCreate = this.checkRateLimit(info.player);
-  
-  		if (!playerCanCreate) {
-  			const backoffData = this.rateLimiter.get(info.player.steamID);
-  			if (backoffData) {
-  				const waitTime = Math.ceil((backoffData.backoffUntil - currentTime) / 1000);
-  				await this.server.rcon.warn(info.player.steamID, `You have exceeded the squad creation limit. Please wait ${waitTime} second${waitTime !== 1 ? 's' : ''}.`);
-  			}
-  		}
-  
-  		// Disband the squad
-  		await this.server.rcon.execute(`AdminDisbandSquad ${info.player.teamID} ${info.player.squadID}`);
-  		if (!this.options.broadcastMode) {
-  			await this.server.rcon.warn(info.player.steamID, 'Squad creation is currently blocked.');
-  		}
-  		return; // Exit if blocked
-  	}
-  
-  	// After global blocking time ends, check individual player backoff
-  	const playerRateData = this.rateLimiter.get(info.player.steamID);
-  
-  
-  	// Check if the player is still in backoff period
-  	if (playerRateData && currentTime < playerRateData.backoffUntil) {
-  		const waitTime = Math.ceil((playerRateData.backoffUntil - currentTime) / 1000);
-  		await this.server.rcon.warn(info.player.steamID, `You are still rate limited for squad creations. Please wait ${waitTime} second${waitTime !== 1 ? 's' : ''}.`);
-  		await this.server.rcon.execute(`AdminDisbandSquad ${info.player.teamID} ${info.player.squadID}`);
-  		return; // Prevent squad creation if still in backoff
-  	}
-  
-  }
-  
+    const currentTime = Date.now();
+	// Check if squad creation is blocked or if the round is ending
+    if (this.isBlocking || this.isRoundEnding) {
+      if (this.options.allowDefaultSquadNames && this.isDefaultSquadName(info.squadName)) {
+        return; // Allow default squad names
+      }
+      // Increment the rate limit for this player
+      const playerCanCreate = this.checkRateLimit(info.player);
 
-
-
-  scheduleBroadcasts() {
-    const broadcasts = [];
-    for (let i = Math.floor(this.options.blockDuration / 10) * 10; i > 0; i -= 10) {
-      const message = this.options.allowDefaultSquadNames
-        ? `Custom squad creation will be unlocked in ${i} seconds. Default squad names are allowed.`
-        : `New squad creation will be unlocked in ${i} seconds.`;
-      broadcasts.push({ time: this.blockDurationMs - i * 1000, message });
+      if (!playerCanCreate) {
+        const backoffData = this.rateLimiter.get(info.player.steamID);
+        if (backoffData) {
+          const waitTime = Math.ceil((backoffData.backoffUntil - currentTime) / 1000);
+          await this.server.rcon.warn(info.player.steamID, `You have exceeded the squad creation limit. Please wait ${waitTime} second${waitTime !== 1 ? 's' : ''}.`);
+        }
+      }
+      // Disband the squad
+      await this.server.rcon.execute(`AdminDisbandSquad ${info.player.teamID} ${info.player.squadID}`);
+      await this.server.rcon.warn(info.player.steamID, `Custom squad creation is blocked for the first ${this.options.blockDuration} seconds of the game.`);
     }
 
-    broadcasts.forEach(broadcast => {
-      const timeout = setTimeout(() => {
-        this.server.rcon.broadcast(broadcast.message);
-      }, broadcast.time);
-      this.broadcastTimeouts.push(timeout);
-    });
+    this.trackSquadCreation(info.player);
+  }
+
+  scheduleBroadcasts() {
+    this.clearBroadcasts();
+
+    const messageFrequency = 5000;
+    const totalMessages = Math.floor(this.blockDurationMs / messageFrequency);
+
+    for (let i = 1; i <= totalMessages; i++) {
+      const delay = i * messageFrequency;
+      const remainingTime = Math.ceil((this.blockDurationMs - delay) / 1000);
+
+      const timeoutId = setTimeout(() => {
+        this.server.rcon.broadcast(`${this.squadCreationType.charAt(0).toUpperCase() + this.squadCreationType.slice(1)} squad creation unlocked in ${remainingTime} second${remainingTime > 1 ? 's' : ''}!`);
+      }, delay);
+
+      this.broadcastTimeouts.push(timeoutId);
+    }
   }
 
   clearBroadcasts() {
-    this.broadcastTimeouts.forEach(clearTimeout);
+    this.broadcastTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
     this.broadcastTimeouts = [];
   }
 }
