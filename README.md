@@ -1,91 +1,61 @@
-# SquadCreationBlocker Plugin for SquadJS
+# SquadCreationBlocker Plugin
 
 ## Description
 
-The SquadCreationBlocker plugin is designed for SquadJS to manage and control squad creation in Squad servers. It prevents squads from being created within a specified time after a new game starts and at the end of a round. It offers two modes of operation: broadcasting countdown messages or sending individual warnings to players attempting to create squads during restricted periods.
+Prevents custom squad creation during the initial period of new games and at round end. Includes anti-spam features with rate limiting, cooldowns, and optional kick functionality.
 
 ## Features
 
-- Blocks squad creation for a configurable duration at the start of each new game.
-- Prevents squad creation at the end of a round.
-- Two modes of operation: broadcast mode and warning mode.
-- Configurable block duration.
-- Option to allow default squad names during the blocked period.
-- Provides feedback to players attempting to create squads during blocked periods.
-
-## Installation
-
-1. Ensure you have [SquadJS](https://github.com/Team-Silver-Sphere/SquadJS) installed and configured.
-2. Place the [`squad-creation-blocker.js`](/squad-server/plugins/squad-creation-blocker.js) file in your SquadJS plugins directory.
-3. Update your SquadJS configuration file to include the SquadCreationBlocker plugin as shown in the [Configuration](#configuration) section.
+- Blocks custom squad creation for configurable duration after game start
+- Prevents custom squad creation at round end
+- Optional default squad names (e.g., "Squad 1") during blocked periods
+- Anti-spam rate limiting with warnings, cooldowns, and kicks
+- Broadcast or individual warning modes
+- Periodic squad monitoring to catch bypassed creations
 
 ## Configuration
 
-Add the following to your SquadJS configuration file:
-
-```jsonc
+```json
 {
   "plugin": "SquadCreationBlocker",
   "enabled": true,
   "blockDuration": 15,
   "broadcastMode": false,
-  "allowDefaultSquadNames": true
+  "allowDefaultSquadNames": true,
+  "enableRateLimiting": true,
+  "rateLimitingScope": "blockingPeriodOnly",
+  "warningThreshold": 3,
+  "cooldownDuration": 10,
+  "kickThreshold": 20,
+  "pollInterval": 1,
+  "cooldownWarningInterval": 3
 }
 ```
 
-### Options
+### Key Options
 
-- `enabled`: Set to `true` to enable the plugin, `false` to disable.
-- `blockDuration`: The duration (in seconds) after a new game starts during which squad creation is blocked. Default is 15 seconds.
-- `broadcastMode`: Set to `true` to enable countdown broadcasts, `false` to enable individual warnings. Default is false.
-- `allowDefaultSquadNames`: Set to `true` to allow creation of squads with default names (e.g., "Squad 1") during the blocking period. Default is true.
-
-## Usage
-
-Once configured and enabled, the plugin will automatically:
-
-1. Block squad creation for the specified duration at the start of each new game.
-2. Prevent squad creation at the end of each round.
-3. If `broadcastMode` is set to `true`:
-   - Broadcast countdown messages at multiples of 10 seconds.
-   - Broadcast a message when squad creation is unlocked.
-4. If `broadcastMode` is set to `false`:
-   - Send individual warnings to players attempting to create squads during the blocked period.
-5. Disband any squads created during the blocked period.
-6. Allow creation of squads with default names during the blocked period if `allowDefaultSquadNames` is set to `true` (see [Options](#options)).
+- **blockDuration**: Block duration in seconds after game start (default: 15)
+- **broadcastMode**: Use countdown broadcasts instead of individual warnings (default: false)
+- **allowDefaultSquadNames**: Allow "Squad X" names during blocking (default: true)
+- **enableRateLimiting**: Enable anti-spam protection (default: true)
+- **rateLimitingScope**: Apply rate limiting "blockingPeriodOnly" or "entireMatch" (default: "blockingPeriodOnly")
+- **warningThreshold**: Attempts before warnings (default: 3)
+- **cooldownDuration**: Cooldown period in seconds (default: 10)
+- **kickThreshold**: Attempts before kick, 0 to disable (default: 20)
 
 ## Behavior
 
-- **New Game Start**: 
-  - Blocks squad creation for the specified `blockDuration`.
-  - If in broadcast mode, schedules countdown broadcasts.
-  - When the block period ends, allows squad creation and broadcasts an "unlocked" message.
+- **Game Start**: Blocks custom squads for specified duration, allows default names
+- **Round End**: Blocks all custom squad creation until next game
+- **Rate Limiting**: Tracks attempts, applies cooldowns, and kicks repeat offenders
+- **Squad Detection**: Monitors existing squads via polling to catch creation bypasses
 
-- **Round End**: 
-  - Blocks squad creation indefinitely until the next game starts.
-  - Cancels any scheduled broadcasts.
+## Installation
 
-- **Squad Creation Attempt During Blocked Period**:
-  - If the squad name is custom:
-    - Disbands the squad immediately.
-    - If in warning mode:
-      - During new game block: Informs how many seconds remain before they can create a custom squad.
-      - During round end: Informs that custom squad creation is not allowed at the end of a round.
-  - If the squad name is default (e.g., "Squad 1") and `allowDefaultSquadNames` is true:
-    - Allows the squad to be created.
-
-## Dependencies
-
-- [SquadJS](https://github.com/Team-Silver-Sphere/SquadJS)
-
-## Contributing
-
-Contributions to improve the SquadCreationBlocker plugin are welcome. Please feel free to submit pull requests or create issues for bugs and feature requests.
+1. Place `squad-creation-blocker.js` in your SquadJS plugins directory
+2. Add configuration to your SquadJS config file
+3. Restart SquadJS
 
 ## License
 
-This plugin is released under the GNU Affero General Public License v3.0. See the [LICENSE](/LICENSE) file for more details.
-
-## Support
-
-For support, please create an issue in the GitHub repository or contact the plugin maintainer. You can also refer to the [Behavior](#behavior) section for detailed information on how the plugin works.
+GNU Affero General Public License v3.0 - See [LICENSE](/LICENSE)
