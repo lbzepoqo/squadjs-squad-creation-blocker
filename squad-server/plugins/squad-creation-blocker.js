@@ -377,7 +377,7 @@ export default class SquadCreationBlocker extends BasePlugin {
     for (let i = Math.floor(this.options.blockDuration / 10) * 10; i > 0; i -= 10) {
       broadcasts.push({
         time: this.blockDurationMs - i * 1000,
-        message: `Custom squad names unlocks in ${i}s. Default names (e.g. "Squad 1") are allowed. Spammers get ${this.options.cooldownDuration}s cooldown.`
+        message: `Custom squad names unlock in ${i}s. Default names (e.g. "Squad 1") are allowed. Spammers get ${this.options.cooldownDuration}s cooldown.`
       });
     }
 

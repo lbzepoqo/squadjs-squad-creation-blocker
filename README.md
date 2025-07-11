@@ -73,11 +73,15 @@ A robust SquadJS plugin that prevents custom squad creation during critical game
   "plugin": "SquadCreationBlocker",
   "enabled": true,
   "blockDuration": 15,
+  "broadcastMode": false,
+  "allowDefaultSquadNames": true,
   "enableRateLimiting": true,
   "rateLimitingScope": "entireMatch",
   "warningThreshold": 2,
   "cooldownDuration": 15,
   "kickThreshold": 10,
+  "pollInterval": 1,
+  "cooldownWarningInterval": 3,
   "resetOnAttempt": true
 }
 ```
@@ -149,7 +153,7 @@ Please wait for 12 seconds before creating a custom squad. Default names (e.g. "
 
 ### Broadcast Mode Messages
 ```
-Custom squad names unlocks in 10s. Default names (e.g. "Squad 1") are allowed. Spammers get 10s cooldown.
+Custom squad names unlock in 10s. Default names (e.g. "Squad 1") are allowed. Spammers get 10s cooldown.
 ```
 
 ### Rate Limiting Warnings
