@@ -1,0 +1,6 @@
+{
+  "plugin": "SquadCreationBlocker",
+  "enabled": true,
+  "blockDuration": 15,
+  "allowDefaultSquadNames": true
+}
