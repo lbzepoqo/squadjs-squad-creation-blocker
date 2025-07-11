@@ -2,7 +2,7 @@ import BasePlugin from './base-plugin.js';
 
 export default class SquadCreationBlocker extends BasePlugin {
   static get description() {
-    return 'The <code>SquadCreationBlocker</code> plugin prevents squads with custom names from being created within a specified time after a new game starts and at the end of a round. It includes anti-spam rate limiting with configurable warnings, cooldowns, and kick functionality to prevent players from overwhelming the system.';
+    return 'The <code>SquadCreationBlocker</code> plugin prevents squads with custom names from being created within a specified time after a new game starts and at the end of a round. It includes anti-spam rate limiting with configurable warnings, cooldowns, kick functionality, and optional cooldown reset behavior to prevent players from overwhelming the system.';
   }
 
   static get defaultEnabled() {
@@ -60,6 +60,11 @@ export default class SquadCreationBlocker extends BasePlugin {
         required: false,
         description: 'Interval in seconds for warning players about remaining cooldown time.',
         default: 3
+      },
+      resetOnAttempt: {
+        required: false,
+        description: 'If true, cooldown timer resets on each new attempt. If false, cooldown must expire before new attempts trigger rate limiting.',
+        default: false
       }
     };
   }
@@ -224,10 +229,14 @@ export default class SquadCreationBlocker extends BasePlugin {
     // Check if player should be put in cooldown
     if (currentAttempts > this.options.warningThreshold) {
       const cooldownEndTime = Date.now() + (this.options.cooldownDuration * 1000);
-      this.playerCooldowns.set(steamID, cooldownEndTime);
       
-      await this.server.rcon.warn(steamID, `You are on cooldown for ${this.options.cooldownDuration}s due to squad creation spam. Stop spamming or you will be kicked!`);
-      this.startCooldownWarning(steamID);
+      // Only set/reset cooldown if resetOnAttempt is true, or if player is not currently in cooldown
+      if (this.options.resetOnAttempt || !this.isPlayerInCooldown(steamID)) {
+        this.playerCooldowns.set(steamID, cooldownEndTime);
+        
+        await this.server.rcon.warn(steamID, `You are on cooldown for ${this.options.cooldownDuration}s due to squad creation spam. Stop spamming or you will be kicked!`);
+        this.startCooldownWarning(steamID);
+      }
     } else {
       // Send warning about approaching cooldown
       const remaining = this.options.warningThreshold - currentAttempts + 1;

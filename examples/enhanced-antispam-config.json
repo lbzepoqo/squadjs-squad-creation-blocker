@@ -1,0 +1,15 @@
+{
+  "plugin": "SquadCreationBlocker",
+  "enabled": true,
+  "blockDuration": 15,
+  "broadcastMode": false,
+  "allowDefaultSquadNames": true,
+  "enableRateLimiting": true,
+  "rateLimitingScope": "entireMatch",
+  "warningThreshold": 2,
+  "cooldownDuration": 15,
+  "kickThreshold": 10,
+  "pollInterval": 1,
+  "cooldownWarningInterval": 3,
+  "resetOnAttempt": true
+}

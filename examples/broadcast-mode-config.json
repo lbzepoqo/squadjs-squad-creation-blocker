@@ -1,0 +1,9 @@
+{
+  "plugin": "SquadCreationBlocker",
+  "enabled": true,
+  "blockDuration": 20,
+  "broadcastMode": true,
+  "allowDefaultSquadNames": false,
+  "enableRateLimiting": false,
+  "pollInterval": 1
+}
