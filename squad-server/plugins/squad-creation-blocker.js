@@ -166,14 +166,14 @@ export default class SquadCreationBlocker extends BasePlugin {
     return this.options.squadWhitelist.some(whitelistedName => whitelistedName.toLowerCase() === lowerSquadName);
   }
 
-  isPlayerInCooldown(steamID) {
-    const cooldownEndTime = this.playerCooldowns.get(steamID);
+  isPlayerInCooldown(playerID) {
+    const cooldownEndTime = this.playerCooldowns.get(playerID);
     if (!cooldownEndTime) return false;
     if (Date.now() < cooldownEndTime) {
       return true;
     } else {
-      this.playerCooldowns.delete(steamID);
-      this.clearCooldownWarning(steamID);
+      this.playerCooldowns.delete(playerID);
+      this.clearCooldownWarning(playerID);
       return false;
     }
   }
@@ -188,8 +188,8 @@ export default class SquadCreationBlocker extends BasePlugin {
   }
 
   async handleSquadCreated(info) {
-    const steamID = info.player.steamID;
-    const shouldBlock = this.isBlocking || (this.shouldApplyRateLimit() && this.isPlayerInCooldown(steamID));
+    const playerID = info.player.eosID || info.player.steamID;
+    const shouldBlock = this.isBlocking || (this.shouldApplyRateLimit() && this.isPlayerInCooldown(playerID));
     if (!shouldBlock) return;
     if (this.isWhitelistedSquadName(info.squadName)) return;
     if (this.options.allowDefaultSquadNames && this.isDefaultSquadName(info.squadName)) return;
@@ -197,71 +197,71 @@ export default class SquadCreationBlocker extends BasePlugin {
     await this.server.rcon.execute(`AdminDisbandSquad ${info.player.teamID} ${info.player.squadID}`);
 
     if (this.shouldApplyRateLimit()) {
-      await this.processRateLimit(steamID);
+      await this.processRateLimit(playerID);
     } else {
       if (this.isRoundEnding) {
-        await this.server.rcon.warn(steamID, "You are not allowed to create a custom squad at the end of a round.");
+        await this.server.rcon.warn(playerID, "You are not allowed to create a custom squad at the end of a round.");
       } else if (!this.options.broadcastMode) {
         const timeLeft = Math.ceil((this.blockEndTime - Date.now()) / 1000);
-        await this.server.rcon.warn(steamID, `Please wait for ${timeLeft} second${timeLeft !== 1 ? 's' : ''} before creating a custom squad. Default names (e.g. "Squad 1") are allowed.`);
+        await this.server.rcon.warn(playerID, `Please wait for ${timeLeft} second${timeLeft !== 1 ? 's' : ''} before creating a custom squad. Default names (e.g. "Squad 1") are allowed.`);
       }
     }
   }
 
-  async processRateLimit(steamID) {
-    const currentAttempts = (this.playerAttempts.get(steamID) || 0) + 1;
-    this.playerAttempts.set(steamID, currentAttempts);
+  async processRateLimit(playerID) {
+    const currentAttempts = (this.playerAttempts.get(playerID) || 0) + 1;
+    this.playerAttempts.set(playerID, currentAttempts);
 
     if (this.options.kickThreshold > 0 && currentAttempts >= this.options.kickThreshold) {
-      await this.server.rcon.execute(`AdminKick "${steamID}" Excessive squad creation spam`);
-      this.resetPlayerData(steamID);
+      await this.server.rcon.execute(`AdminKick "${playerID}" Excessive squad creation spam`);
+      this.resetPlayerData(playerID);
       return;
     }
 
     if (currentAttempts > this.options.warningThreshold) {
       const cooldownEndTime = Date.now() + (this.options.cooldownDuration * 1000);
       // resetOnAttempt lets spammers extend their own cooldown; without it, the first trigger is the only one
-      if (this.options.resetOnAttempt || !this.isPlayerInCooldown(steamID)) {
-        this.playerCooldowns.set(steamID, cooldownEndTime);
-        await this.server.rcon.warn(steamID, `You are on cooldown for ${this.options.cooldownDuration}s due to squad creation spam. Stop spamming or you will be kicked!`);
-        this.startCooldownWarning(steamID);
+      if (this.options.resetOnAttempt || !this.isPlayerInCooldown(playerID)) {
+        this.playerCooldowns.set(playerID, cooldownEndTime);
+        await this.server.rcon.warn(playerID, `You are on cooldown for ${this.options.cooldownDuration}s due to squad creation spam. Stop spamming or you will be kicked!`);
+        this.startCooldownWarning(playerID);
       }
     } else {
       const remaining = this.options.warningThreshold - currentAttempts + 1;
-      await this.server.rcon.warn(steamID, `Warning: Stop spamming squad creation! ${remaining} more attempt${remaining !== 1 ? 's' : ''} before cooldown.`);
+      await this.server.rcon.warn(playerID, `Warning: Stop spamming squad creation! ${remaining} more attempt${remaining !== 1 ? 's' : ''} before cooldown.`);
     }
   }
 
-  startCooldownWarning(steamID) {
-    this.clearCooldownWarning(steamID);
+  startCooldownWarning(playerID) {
+    this.clearCooldownWarning(playerID);
     
     const warnAboutCooldown = async () => {
-      const cooldownEndTime = this.playerCooldowns.get(steamID);
+      const cooldownEndTime = this.playerCooldowns.get(playerID);
       if (!cooldownEndTime) return;
       
       const timeLeft = Math.ceil((cooldownEndTime - Date.now()) / 1000);
       if (timeLeft <= 0) {
-        this.playerCooldowns.delete(steamID);
-        this.clearCooldownWarning(steamID);
-        await this.server.rcon.warn(steamID, "Squad creation cooldown has expired.");
+        this.playerCooldowns.delete(playerID);
+        this.clearCooldownWarning(playerID);
+        await this.server.rcon.warn(playerID, "Squad creation cooldown has expired.");
         return;
       }
       
-      await this.server.rcon.warn(steamID, `Squad creation cooldown: ${timeLeft} second${timeLeft !== 1 ? 's' : ''} remaining.`);
+      await this.server.rcon.warn(playerID, `Squad creation cooldown: ${timeLeft} second${timeLeft !== 1 ? 's' : ''} remaining.`);
       
       const timeoutId = setTimeout(warnAboutCooldown, this.options.cooldownWarningInterval * 1000);
-      this.cooldownWarningTimeouts.set(steamID, timeoutId);
+      this.cooldownWarningTimeouts.set(playerID, timeoutId);
     };
     
     const timeoutId = setTimeout(warnAboutCooldown, this.options.cooldownWarningInterval * 1000);
-    this.cooldownWarningTimeouts.set(steamID, timeoutId);
+    this.cooldownWarningTimeouts.set(playerID, timeoutId);
   }
 
-  clearCooldownWarning(steamID) {
-    const timeoutId = this.cooldownWarningTimeouts.get(steamID);
+  clearCooldownWarning(playerID) {
+    const timeoutId = this.cooldownWarningTimeouts.get(playerID);
     if (timeoutId) {
       clearTimeout(timeoutId);
-      this.cooldownWarningTimeouts.delete(steamID);
+      this.cooldownWarningTimeouts.delete(playerID);
     }
   }
 
@@ -272,10 +272,10 @@ export default class SquadCreationBlocker extends BasePlugin {
     this.cooldownWarningTimeouts.clear();
   }
 
-  resetPlayerData(steamID) {
-    this.playerAttempts.delete(steamID);
-    this.playerCooldowns.delete(steamID);
-    this.clearCooldownWarning(steamID);
+  resetPlayerData(playerID) {
+    this.playerAttempts.delete(playerID);
+    this.playerCooldowns.delete(playerID);
+    this.clearCooldownWarning(playerID);
   }
 
   resetRateLimitingData() {
@@ -312,13 +312,13 @@ export default class SquadCreationBlocker extends BasePlugin {
         if (this.isWhitelistedSquadName(squad.squadName)) continue;
         if (this.options.allowDefaultSquadNames && this.isDefaultSquadName(squad.squadName)) continue;
 
-        const creatorSteamID = squad.creatorSteam;
-        if (!creatorSteamID) continue;
+        const creatorID = squad.creatorEOSID || squad.creatorSteamID;
+        if (!creatorID) continue;
 
-        if (this.isPlayerInCooldown(creatorSteamID) || this.isBlocking) {
+        if (this.isPlayerInCooldown(creatorID) || this.isBlocking) {
           await this.server.rcon.execute(`AdminDisbandSquad ${squad.teamID} ${squad.squadID}`);
           this.knownSquads.delete(squadKey);
-          await this.processRateLimit(creatorSteamID);
+          await this.processRateLimit(creatorID);
         }
       }
     } catch (error) {
