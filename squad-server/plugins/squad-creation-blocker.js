@@ -65,6 +65,11 @@ export default class SquadCreationBlocker extends BasePlugin {
         required: false,
         description: 'If true, cooldown timer resets on each new attempt. If false, cooldown must expire before new attempts trigger rate limiting.',
         default: false
+      },
+      squadWhitelist: {
+        required: false,
+        description: 'Array of squad names that are always allowed, even during blocking periods. Names are matched case-insensitively.',
+        default: []
       }
     };
   }
@@ -75,15 +80,14 @@ export default class SquadCreationBlocker extends BasePlugin {
     this.isRoundEnding = false;
     this.blockDurationMs = this.options.blockDuration * 1000;
     this.blockEndTime = 0;
+    this.blockTimeoutId = null;
     this.broadcastTimeouts = [];
-    
-    // Rate limiting data structures
-    this.playerAttempts = new Map(); // steamID -> attempt count
-    this.playerCooldowns = new Map(); // steamID -> cooldown end time
+    this.playerAttempts = new Map();
+    this.playerCooldowns = new Map();
     this.pollIntervalId = null;
-    this.cooldownWarningTimeouts = new Map(); // steamID -> timeout ID
-    this.knownSquads = new Set(); // Track known squad IDs to detect new ones
-    
+    this.isPollRunning = false;
+    this.cooldownWarningTimeouts = new Map();
+    this.knownSquads = new Set();
     this.bindEventHandlers();
   }
 
@@ -105,6 +109,7 @@ export default class SquadCreationBlocker extends BasePlugin {
   }
 
   async unmount() {
+    clearTimeout(this.blockTimeoutId);
     this.clearBroadcasts();
     this.clearCooldownWarnings();
     this.stopPolling();
@@ -113,33 +118,30 @@ export default class SquadCreationBlocker extends BasePlugin {
     this.server.removeEventListener('ROUND_ENDED', this.handleRoundEnd);
   }
 
-  handleNewGame() {
+  async handleNewGame() {
+    clearTimeout(this.blockTimeoutId);
     this.isBlocking = true;
     this.isRoundEnding = false;
     this.blockEndTime = Date.now() + this.blockDurationMs;
 
-    // Reset rate limiting data for new game if scope is blocking period only
     if (this.options.rateLimitingScope === 'blockingPeriodOnly') {
       this.resetRateLimitingData();
     }
 
-    // Initialize known squads
-    this.initializeKnownSquads();
+    await this.initializeKnownSquads();
 
+    this.clearBroadcasts();
     if (this.options.broadcastMode) {
       this.scheduleBroadcasts();
     }
 
-    // Start polling if rate limiting is enabled and scope includes blocking period
     if (this.options.enableRateLimiting && this.options.rateLimitingScope === 'blockingPeriodOnly') {
       this.startPolling();
     }
 
-    setTimeout(() => {
+    this.blockTimeoutId = setTimeout(() => {
       this.isBlocking = false;
       this.server.rcon.broadcast('Custom squad creation is now unlocked!');
-      
-      // Stop polling if scope is blocking period only
       if (this.options.enableRateLimiting && this.options.rateLimitingScope === 'blockingPeriodOnly') {
         this.stopPolling();
       }
@@ -150,26 +152,26 @@ export default class SquadCreationBlocker extends BasePlugin {
     this.isBlocking = true;
     this.isRoundEnding = true;
     this.clearBroadcasts();
-    
-    // Reset rate limiting data for round end if scope is blocking period only
     if (this.options.rateLimitingScope === 'blockingPeriodOnly') {
       this.resetRateLimitingData();
     }
   }
 
   isDefaultSquadName(squadName) {
-    // Check if the squad name matches the pattern "Squad X" or "squad X" where X is a number
     return /^[Ss]quad \d+$/.test(squadName);
+  }
+
+  isWhitelistedSquadName(squadName) {
+    const lowerSquadName = squadName.toLowerCase();
+    return this.options.squadWhitelist.some(whitelistedName => whitelistedName.toLowerCase() === lowerSquadName);
   }
 
   isPlayerInCooldown(steamID) {
     const cooldownEndTime = this.playerCooldowns.get(steamID);
     if (!cooldownEndTime) return false;
-    
     if (Date.now() < cooldownEndTime) {
       return true;
     } else {
-      // Cooldown expired, clean up
       this.playerCooldowns.delete(steamID);
       this.clearCooldownWarning(steamID);
       return false;
@@ -187,24 +189,16 @@ export default class SquadCreationBlocker extends BasePlugin {
 
   async handleSquadCreated(info) {
     const steamID = info.player.steamID;
-    
-    // Check if we should block this squad creation
     const shouldBlock = this.isBlocking || (this.shouldApplyRateLimit() && this.isPlayerInCooldown(steamID));
-    
     if (!shouldBlock) return;
-
-    // Allow default squad names if the option is enabled (even during cooldown)
-    if (this.options.allowDefaultSquadNames && this.isDefaultSquadName(info.squadName)) {
-      return;
-    }
+    if (this.isWhitelistedSquadName(info.squadName)) return;
+    if (this.options.allowDefaultSquadNames && this.isDefaultSquadName(info.squadName)) return;
 
     await this.server.rcon.execute(`AdminDisbandSquad ${info.player.teamID} ${info.player.squadID}`);
 
-    // Apply rate limiting if enabled
     if (this.shouldApplyRateLimit()) {
-      await this.processRateLimit(steamID, info.player, info.squadName);
+      await this.processRateLimit(steamID);
     } else {
-      // Standard blocking period message
       if (this.isRoundEnding) {
         await this.server.rcon.warn(steamID, "You are not allowed to create a custom squad at the end of a round.");
       } else if (!this.options.broadcastMode) {
@@ -214,31 +208,25 @@ export default class SquadCreationBlocker extends BasePlugin {
     }
   }
 
-  async processRateLimit(steamID, player, squadName) {
-    // Increment attempt counter
+  async processRateLimit(steamID) {
     const currentAttempts = (this.playerAttempts.get(steamID) || 0) + 1;
     this.playerAttempts.set(steamID, currentAttempts);
 
-    // Check for kick threshold
     if (this.options.kickThreshold > 0 && currentAttempts >= this.options.kickThreshold) {
       await this.server.rcon.execute(`AdminKick "${steamID}" Excessive squad creation spam`);
       this.resetPlayerData(steamID);
       return;
     }
 
-    // Check if player should be put in cooldown
     if (currentAttempts > this.options.warningThreshold) {
       const cooldownEndTime = Date.now() + (this.options.cooldownDuration * 1000);
-      
-      // Only set/reset cooldown if resetOnAttempt is true, or if player is not currently in cooldown
+      // resetOnAttempt lets spammers extend their own cooldown; without it, the first trigger is the only one
       if (this.options.resetOnAttempt || !this.isPlayerInCooldown(steamID)) {
         this.playerCooldowns.set(steamID, cooldownEndTime);
-        
         await this.server.rcon.warn(steamID, `You are on cooldown for ${this.options.cooldownDuration}s due to squad creation spam. Stop spamming or you will be kicked!`);
         this.startCooldownWarning(steamID);
       }
     } else {
-      // Send warning about approaching cooldown
       const remaining = this.options.warningThreshold - currentAttempts + 1;
       await this.server.rcon.warn(steamID, `Warning: Stop spamming squad creation! ${remaining} more attempt${remaining !== 1 ? 's' : ''} before cooldown.`);
     }
@@ -303,65 +291,45 @@ export default class SquadCreationBlocker extends BasePlugin {
       for (const squad of squads) {
         this.knownSquads.add(`${squad.teamID}-${squad.squadID}`);
       }
-    } catch (error) {
-      this.verbose(1, `Error initializing known squads: ${error.message}`);
+    } catch (err) {
+      this.verbose(1, `Error initializing known squads: ${err.message}`);
     }
   }
 
   async pollSquads() {
     if (!this.shouldApplyRateLimit()) return;
+    if (this.isPollRunning) return;
+    this.isPollRunning = true;
 
     try {
       const squads = await this.server.rcon.getSquads();
-      
+
       for (const squad of squads) {
         const squadKey = `${squad.teamID}-${squad.squadID}`;
-        
-        // Skip if this squad was already known
         if (this.knownSquads.has(squadKey)) continue;
-        
-        // New squad detected
         this.knownSquads.add(squadKey);
-        
-        // Skip if it's a default squad name and default names are allowed
-        if (this.options.allowDefaultSquadNames && this.isDefaultSquadName(squad.squadName)) {
-          continue;
-        }
 
-        // Get creator's Steam ID
+        if (this.isWhitelistedSquadName(squad.squadName)) continue;
+        if (this.options.allowDefaultSquadNames && this.isDefaultSquadName(squad.squadName)) continue;
+
         const creatorSteamID = squad.creatorSteam;
         if (!creatorSteamID) continue;
 
-        // Check if creator is in cooldown
-        if (this.isPlayerInCooldown(creatorSteamID)) {
-          // Don't disband if it's a default squad name and default names are allowed
-          if (this.options.allowDefaultSquadNames && this.isDefaultSquadName(squad.squadName)) {
-            continue;
-          }
-          
+        if (this.isPlayerInCooldown(creatorSteamID) || this.isBlocking) {
           await this.server.rcon.execute(`AdminDisbandSquad ${squad.teamID} ${squad.squadID}`);
-          this.knownSquads.delete(squadKey); // Remove since we disbanded it
-          
-          // Reset cooldown and process rate limiting
-          await this.processRateLimit(creatorSteamID, { teamID: squad.teamID, squadID: squad.squadID }, squad.squadName);
-        } else if (this.isBlocking) {
-          // During blocking period, disband non-default squads
-          await this.server.rcon.execute(`AdminDisbandSquad ${squad.teamID} ${squad.squadID}`);
-          this.knownSquads.delete(squadKey); // Remove since we disbanded it
-          
-          if (this.shouldApplyRateLimit()) {
-            await this.processRateLimit(creatorSteamID, { teamID: squad.teamID, squadID: squad.squadID }, squad.squadName);
-          }
+          this.knownSquads.delete(squadKey);
+          await this.processRateLimit(creatorSteamID);
         }
       }
     } catch (error) {
       this.verbose(1, `Error polling squads: ${error.message}`);
+    } finally {
+      this.isPollRunning = false;
     }
   }
 
   startPolling() {
-    if (this.pollIntervalId) return; // Already polling
-    
+    if (this.pollIntervalId) return;
     this.pollIntervalId = setInterval(this.pollSquads, this.options.pollInterval * 1000);
   }
 
@@ -377,7 +345,7 @@ export default class SquadCreationBlocker extends BasePlugin {
     for (let i = Math.floor(this.options.blockDuration / 10) * 10; i > 0; i -= 10) {
       broadcasts.push({
         time: this.blockDurationMs - i * 1000,
-        message: `Custom squad names unlock in ${i}s. Default names (e.g. "Squad 1") are allowed. Spammers get ${this.options.cooldownDuration}s cooldown.`
+        message: `Custom squad names unlocks in ${i}s. Default names (e.g. "Squad 1") are allowed. Spammers get ${this.options.cooldownDuration}s cooldown.`
       });
     }
 
