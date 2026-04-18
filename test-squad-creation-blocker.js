@@ -359,7 +359,7 @@ console.log('\n--- pollSquads: disbands new squads during blocking ---');
   installMockTimers();
   const server = makeMockServer();
   server.rcon.getSquads = async () => [
-    { teamID: 1, squadID: 2, squadName: 'Custom Squad', creatorSteam: 'steam1' }
+    { teamID: 1, squadID: 2, squadName: 'Custom Squad', creatorSteamID: 'steam1' }
   ];
   const { plugin } = makePlugin(
     { enableRateLimiting: true, rateLimitingScope: 'blockingPeriodOnly', warningThreshold: 3, kickThreshold: 20 },
@@ -377,7 +377,7 @@ console.log('\n--- pollSquads: disbands new squads during blocking ---');
   installMockTimers();
   const server = makeMockServer();
   server.rcon.getSquads = async () => [
-    { teamID: 1, squadID: 2, squadName: 'Squad 1', creatorSteam: 'steam1' }
+    { teamID: 1, squadID: 2, squadName: 'Squad 1', creatorSteamID: 'steam1' }
   ];
   const { plugin } = makePlugin(
     { enableRateLimiting: true, rateLimitingScope: 'blockingPeriodOnly', allowDefaultSquadNames: true },
